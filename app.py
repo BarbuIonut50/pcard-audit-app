@@ -73,7 +73,7 @@ def validate_read_only_sql(sql):
         raise ValueError("The generated statement contained a prohibited operation.")
     if ";" in cleaned.rstrip(";"):
         raise ValueError("Only one SQL statement may be executed.")
-    return cleaned.rstrip(";") + " LIMIT 500;"
+    return "SELECT * FROM (\n" + cleaned.rstrip(";") + "\n) AS audit_results LIMIT 500;"
 
 
 def question_to_sql(question, year):
@@ -154,6 +154,7 @@ with ask_tab:
                     generated_sql = question_to_sql(question.strip(), ask_year)
                     results = run_query(generated_sql)
                 st.success(f"Returned {len(results):,} rows.")
+                st.caption("Question results and CSV exports contain up to 500 rows.")
                 with st.expander("Generated SQLite query", expanded=False):
                     st.code(generated_sql, language="sql")
                 st.dataframe(results, use_container_width=True, hide_index=True)
@@ -218,7 +219,6 @@ with dashboard_tab:
                 WHERE Year = ?
                   AND LOWER({field}) LIKE LOWER(?)
                 ORDER BY ABS(Amount) DESC, TransactionDate ASC
-                LIMIT 2000
             """
             matches = run_query(sql, [search_year, f"%{term}%"])
             total = matches["Amount"].sum() if not matches.empty else 0
@@ -228,7 +228,12 @@ with dashboard_tab:
             if matches.empty:
                 st.info("No matching transactions were found.")
             else:
-                st.dataframe(matches, use_container_width=True, hide_index=True)
+                if len(matches) > 2000:
+                    st.info(
+                        f"Showing the first 2,000 of {len(matches):,} matching transactions. "
+                        "The totals and CSV download include all matches."
+                    )
+                st.dataframe(matches.head(2000), use_container_width=True, hide_index=True)
                 st.download_button(
                     "Download results as CSV",
                     matches.to_csv(index=False).encode("utf-8"),
